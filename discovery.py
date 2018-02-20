@@ -16,6 +16,7 @@ nodes = {}
 
 TOPIC_NODES = re.compile(r'(?P<prefix_topic>[$\w]+[-\w]*\w)/(?P<device>[$\w]+[-\w]*\w)/\$nodes')
 TOPIC_ONLINE = re.compile(r'(?P<prefix_topic>[$\w]+[-\w]*\w)/(?P<device>[$\w]+[-\w]*\w)/\$online')
+TOPIC_NODE_PROPERTIES = re.compile(r'(?P<prefix_topic>[$\w]+[-\w]*\w)/(?P<device>[$\w]+[-\w]*\w)/(?P<node>[$\w]+[-\w]*\w)/\$properties')
 
 STATE_ONLINE = 'true'
 
@@ -51,9 +52,22 @@ def async_start(hass, discovery_topic, hass_config):
         if match_online:
             _LOGGER.warning("Online Match[%s]: %s", match_online.group('device'), payload)
             if payload.lower() == STATE_ONLINE:
-                for key, val in nodes.items():
-                    for key2, val2 in val.items():
-                        _LOGGER.warning("Device:[%s] - Node:[%s] - Type:[%s]", key, key2, val2)
+                device = match_online.group('device')
+                base_topic = match_online.group('prefix_topic')
+                
+                for m_key, m_msg in messages.items():
+                    match_node_prop = TOPIC_NODE_PROPERTIES.match(m_key)
+                    if match_node_prop:
+                        if match_node_prop.group('device') == device:
+                            node = match_node_prop.group('node')
+                            for prop in m_msg.split(','):
+                                _LOGGER.warning("Device:[%s] - Node:[%s] - Prop:[%s] - Value:[%s]", device, node, prop, messages[base_topic + '/' + device + '/' + node + '/' + prop])
+                            
+                        
+                
+                #for key, val in nodes.items():
+                    #for key2, val2 in val.items():
+                        #_LOGGER.warning("Device:[%s] - Node:[%s] - Type:[%s]", key, key2, val2)
                         # Log all nodes and types when device is considered online
 
         return
