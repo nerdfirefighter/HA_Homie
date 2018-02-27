@@ -1,17 +1,16 @@
-### VERY Work In Progress
+# VERY Work In Progress
 
 HomieDevices[device_id] = HomieDevice()
 
 HomieMessages[string] = string
 
 
-
 class HomieDevice(Object):
-    
+
     def __init__(self, device_id, topics[], parent_base='devices'):
         self._device_id = device_id
         self._topic_base = parent_base + '/' + device_id
-        
+
         self._name = topics[self._topic_base + '/$name']
         self._conventionVersion = topics[self._topic_base + '/$homie']
         self._state = topics[self._topic_base + '/$online']
@@ -30,8 +29,6 @@ class HomieDevice(Object):
             self._nodes[node] = HomieNode(node, topics, self._topic_base)
 
 
-
-
 class HomieNode(Object):
 
     def __init__(self, node_id, topics[], parent_base):
@@ -41,18 +38,16 @@ class HomieNode(Object):
         self._type = topics[self._topic_base + '/$type']
         self._name = topics[self._topic_base + '/$name']
 
-
         self._properties[] = {}
         for property in topics[self._topic_base + '/$properties'].split(','):
-            self._properties[property] = HomieProperty(property, topics, self._topic_base)
+            self._properties[property] = HomieProperty(
+                property, topics, self._topic_base)
 
 
-
-
-class HomieProperty (Object)
+class HomieProperty(Object):
 
     def __init__(self, property_id, topics[], parent_base):
-    
+
         self._property_id = property_id
         self._topic_base = parent_base + '/' + property_id
         self._settable = topics[self._topic_base + '/$settable']
@@ -61,11 +56,3 @@ class HomieProperty (Object)
         self._datatype topics[self._topic_base + '/$datatype']
         self._name = topics[self._topic_base + '/$name']
         self._format = topics[self._topic_base + '/$format']
-
-
-
-
-
-
-
-
