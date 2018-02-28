@@ -6,33 +6,33 @@ HomieMessages[string] = string
 
 
 class HomieDevice(Object):
-    ## A definition of a Homie Device
+    # A definition of a Homie Device
 
     def __init__(self, device_id, topics[], parent_base='devices'):
         self._device_id = device_id
-        self._topic_base = '{}/{}'.format(parent_base, device_id)
-        
-        ## Load Device Properties
-        self._name = topics['{}/$name'.format(self._topic_base)]
-        self._conventionVersion = topics['{}/$homie'.format(self._topic_base)]
-        self._state = topics['{}/$online'.format(self._topic_base)]
-        self._ip = topics['{}/$ip'.format(self._topic_base)]
-        self._mac = topics['{}/$mac'.format(self._topic_base)]
+        self._topic_base = f'{parent_base}/{device_id}'
 
-        ## Load Device Stats Properties
-        self._uptime = topics['{}/$stats/uptime'.format(self._topic_base)]
-        self._signal = topics['{}/$stats/signal'.format(self._topic_base)]
-        self._statsInterval = topics['{}/$stats/interval'.format(self._topic_base)]
-        
-        ## Load Firmware Properties
-        self._fw_name = topics['{}/$fw/name'.format(self._topic_base)]
-        self._fw_version = topics['{}/$fw/version'.format(self._topic_base)]
-        self._fw_checksum = topics['{}/$fw/checksum'.format(self._topic_base)]
+        # Load Device Properties
+        self._name = topics[f'{self._topic_base}/$name']
+        self._conventionVersion = topics[f'{self._topic_base}/$homie']
+        self._state = topics[f'{self._topic_base}/$online']
+        self._ip = topics[f'{self._topic_base}/$ip']
+        self._mac = topics[f'{self._topic_base}/$mac']
 
-        ## Load Nodes that are available for this Device
+        # Load Device Stats Properties
+        self._uptime = topics[f'{self._topic_base}/$stats/uptime']
+        self._signal = topics[f'{self._topic_base}/$stats/signal']
+        self._statsInterval = topics[f'{self._topic_base}/$stats/interval']
+
+        # Load Firmware Properties
+        self._fw_name = topics[f'{self._topic_base}/$fw/name']
+        self._fw_version = topics[f'{self._topic_base}/$fw/version']
+        self._fw_checksum = topics[f'{self._topic_base}/$fw/checksum']
+
+        # Load Nodes that are available for this Device
         self._nodes[] = {}
-        for node in topics['{}/$nodes'.format(self._topic_base)].split(','):
-            self._nodes[node] = HomieNode(node, topics, self._topic_base)
+        for node in topics[f'{self._topic_base)].split(', '}/$nodes':
+            self._nodes[node]= HomieNode(node, topics, self._topic_base)
 
     @property
     def deviceId(self):
@@ -43,7 +43,7 @@ class HomieDevice(Object):
     def name(self):
         """Return the name of the device."""
         return self._name
-        
+
     @property
     def homeVersion(self):
         """Return the Homie Framework Version of the device."""
@@ -108,17 +108,17 @@ class HomieDevice(Object):
 
 
 class HomieNode(Object):
-    ## A definition of a Homie Node
+    # A definition of a Homie Node
     def __init__(self, node_id, topics[], parent_base):
 
-        self._node_id = node_id
-        self._topic_base = '{}/{}'.format(parent_base, node_id)
-        self._type = topics['{}/$type'.format(self._topic_base)]
-        self._name = topics['{}/$name'.format(self._topic_base)]
+        self._node_id= node_id
+        self._topic_base= f'{parent_base, node_id}/{}'
+        self._type= topics[f'{self._topic_base}/$type']
+        self._name= topics[f'{self._topic_base}/$name']
 
-        self._properties[] = {}
-        for aproperty in topics['{}/$properties'.format(self._topic_base)].split(','):
-            self._properties[aproperty] = HomieProperty(aproperty, topics, self._topic_base)
+        self._properties[]= {}
+        for aproperty in topics[f'{self._topic_base)].split(', '}/$properties':
+            self._properties[aproperty]= HomieProperty(aproperty, topics, self._topic_base)
 
 
     @property
@@ -151,17 +151,17 @@ class HomieNode(Object):
 
 
 class HomieProperty (Object)
-    ## A definition of a Homie Property
+    # A definition of a Homie Property
     def __init__(self, property_id, topics[], parent_base):
-    
-        self._property_id = property_id
-        self._topic_base = '{}/{}'.format(parent_base, property_id)
-        self._settable = topics['{}/$settable'.format(self._topic_base)]
 
-        self._unit = topics['{}/$unit'.format(self._topic_base)]
-        self._datatype topics['{}/$datatype'.format(self._topic_base)]
-        self._name = topics['{}/$name'.format(self._topic_base)]
-        self._format = topics['{}/$format'.format(self._topic_base)]
+        self._property_id= property_id
+        self._topic_base= f'{parent_base, property_id}/{}'
+        self._settable= topics[f'{self._topic_base}/$settable']
+
+        self._unit= topics[f'{self._topic_base}/$unit']
+        self._datatype topics[f'{self._topic_base}/$datatype']
+        self._name= topics[f'{self._topic_base}/$name']
+        self._format= topics[f'{self._topic_base}/$format']
 
 
     @property
@@ -193,6 +193,3 @@ class HomieProperty (Object)
     def format(self):
         """Return the Format for the Property."""
         return self._format
-
-
-
