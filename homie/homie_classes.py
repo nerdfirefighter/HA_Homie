@@ -1,13 +1,12 @@
 # Imports
 import logging
-from mqtt_message import MQTTMessage
+from .mqtt_message import MQTTMessage
 
 # Types
-from _typing import (MessageQue)
+from ._typing import (MessageQue)
 
 # RegEx
-DISCOVER_NODES = re.compile(
-    r'(?P<prefix_topic>\w[-/\w]*\w)/(?P<device_id>\w[-\w]*\w)/\$properties')
+DISCOVER_NODES = re.compile(r'(?P<prefix_topic>\w[-/\w]*\w)/(?P<device_id>\w[-\w]*\w)/\$properties')
 
 # GLOBALS
 _LOGGER = logging.getLogger(__name__)
@@ -21,10 +20,10 @@ class HomieProperty (Object):
         self._property_id = property_id
         self._prefix_topic = f'{base_topic}/{property_id}'
 
-    def _update(self)
+    def _update(self, topics: MessageQue):
         self._settable = topics[f'{self._prefix_topic}/$settable']
         self._unit = topics[f'{self._prefix_topic}/$unit']
-        self._datatype topics[f'{self._prefix_topic}/$datatype']
+        self._datatype = topics[f'{self._prefix_topic}/$datatype']
         self._name = topics[f'{self._prefix_topic}/$name']
         self._format = topics[f'{self._prefix_topic}/$format']
 
@@ -67,14 +66,15 @@ class HomieNode(Object):
         self._base_topic = base_topic
         self._node_id = node_id
         self._prefix_topic = f'{base_topic}/{node_id}'
+        self._update(topics)
 
-    def update(topics: MessageQue):
+    def _update(self, topics: MessageQue):
         # Load Node Properties
         self._type = topics[f'{self._prefix_topic}/$type'].payload
         # self._name = topics[f'{self._prefix_topic}/$name']
 
         # load Properties that are avaliable to this Node
-        self._discover_nodes(topics)
+        self._discover_property(topics)
 
     def _discover_property(self, topics: MessageQue):
         properties_message = topics[f'{self._prefix_topic)}/$properties'].payload
@@ -82,18 +82,18 @@ class HomieNode(Object):
             properties = properties_message.split(',')
             for property_id in properties:
                 if not self._has_property(property_id):
-                    property = HomieNode(
-                        self._prefix_topic, property_id, topics)
+                    property = HomieNode(self._prefix_topic, property_id, topics)
 
     def _has_property(self, property_id: str):
-        if self._get_node(property_id) is None
+        if self._get_node(property_id) is None:
             return False
         return True
 
     def _get_property(self, property_id: str):
-    for property in self._properties:
-        if property.property_id == property_id:
-            return property
+        for property in self._properties:
+            if property.property_id == property_id:
+                return property
+        return None
 
     @property
     def base_topic(self):
@@ -137,8 +137,8 @@ class HomieDevice(Object):
         self._prefix_topic = f'{base_topic}/{device_id}'
         self._update(topics)
 
-    def _update(self, topics: MessageQue)
-    # Load Device Properties
+    def _update(self, topics: MessageQue):
+        # Load Device Properties
         self._convention_version = topics[f'{self._prefix_topic}/$homie'].payload
         self._online = topics[f'{self._prefix_topic}/$online'].payload
         self._name = topics[f'{self._prefix_topic}/$name'].payload
@@ -163,29 +163,26 @@ class HomieDevice(Object):
         for node in self._nodes:
             node._update(topics)
 
-        # for node in topics[f'{self._prefix_topic)}/$nodes'].split(','):
-        #    self._nodes[node] = HomieNode(node, topics, self._prefix_topic)
-
     def _discover_nodes(self, topics: MessageQue):
         for topic, message in topics.items():
-        node_match = DISCOVER_NODES.match(topic)
-        if node_match:
-            node_base_topic = node_match.group('prefix_topic')
-            node_id = node_match.group('device_id')
-            if not self._has_node(node_id):
-                node = HomieNode(node_base_topic, node_id, topics)
-                self._nodes.append(device)
+            node_match = DISCOVER_NODES.match(topic)
+            if node_match:
+                node_base_topic = node_match.group('prefix_topic')
+                node_id = node_match.group('device_id')
+                if not self._has_node(node_id):
+                    node = HomieNode(node_base_topic, node_id, topics)
+                    self._nodes.append(device)
 
     def _has_node(self, node_id: str):
-        if self._get_node(node_id) is None
+        if self._get_node(node_id) is None:
             return False
         return True
 
     def _get_node(self, node_id: str):
-    for node in self._nodes:
-        if node.node_id == node_id:
-            return node
-    return None
+        for node in self._nodes:
+            if node.node_id == node_id:
+                return node
+        return None
 
     @property
     def base_topic(self):

@@ -20,19 +20,18 @@ from homeassistant.components.mqtt import (
     CONF_QOS
 )
 from homeassistant.const import (EVENT_HOMEASSISTANT_STOP)
-from mqtt_message import (MQTTMessage)
-from homie_classes import (HomieDevice)
+from .mqtt_message import (MQTTMessage)
+from .homie_classes import (HomieDevice)
 
 # TYPES
 from typing import (Dict, List, Callable)
 from homeassistant.helpers.typing import (HomeAssistantType, ConfigType)
-from _typing import (MessageQue)
+from ._typing import (MessageQue)
 
 Devices = List[HomieDevice]
 
 # RegEx
-DISCOVER_DEVICE = re.compile(
-    r'(?P<prefix_topic>\w[-/\w]*\w)/(?P<device_id>\w[-\w]*\w)/\$homie')
+DISCOVER_DEVICE = re.compile(r'(?P<prefix_topic>\w[-/\w]*\w)/(?P<device_id>\w[-\w]*\w)/\$homie')
 
 
 # CONSTANTS
