@@ -46,7 +46,7 @@ HOMIE_SUPPORTED_VERSION = '2.0.0'
 # GLOBALS
 _LOGGER = logging.getLogger(__name__)
 _Task: asyncio.Task = None
-_DISCOVERY_PREFIX = ''
+_DISCOVERY_PREFIX = 'homie/'
 _MQTT_MESSAGES: Dict[str, MQTTMessage] = dict()
 _DEVICES: Devices = list()
 
