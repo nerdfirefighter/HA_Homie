@@ -1,4 +1,4 @@
-## WIP
+# WIP
 
 HomieDevices[device_id] = HomieDevice()
 
@@ -31,8 +31,8 @@ class HomieDevice(Object):
 
         # Load Nodes that are available for this Device
         self._nodes[] = {}
-        for node in topics[f'{self._topic_base)].split(', '}/$nodes':
-            self._nodes[node]= HomieNode(node, topics, self._topic_base)
+        for node in topics[f'{self._topic_base)}/$nodes'].split(','):
+            self._nodes[node] = HomieNode(node, topics, self._topic_base)
 
     @property
     def deviceId(self):
@@ -48,7 +48,6 @@ class HomieDevice(Object):
     def homeVersion(self):
         """Return the Homie Framework Version of the device."""
         return self._conventionVersion
-
 
     @property
     def state(self):
@@ -106,20 +105,19 @@ class HomieDevice(Object):
         return self._nodes[node_name]
 
 
-
 class HomieNode(Object):
     # A definition of a Homie Node
     def __init__(self, node_id, topics[], parent_base):
 
-        self._node_id= node_id
-        self._topic_base= f'{parent_base, node_id}/{}'
-        self._type= topics[f'{self._topic_base}/$type']
-        self._name= topics[f'{self._topic_base}/$name']
+        self._node_id = node_id
+        self._topic_base = f'{parent_base, node_id}/{}'
+        self._type = topics[f'{self._topic_base}/$type']
+        self._name = topics[f'{self._topic_base}/$name']
 
-        self._properties[]= {}
-        for aproperty in topics[f'{self._topic_base)].split(', '}/$properties':
-            self._properties[aproperty]= HomieProperty(aproperty, topics, self._topic_base)
-
+        self._properties[] = {}
+        for aproperty in topics[f'{self._topic_base)}/$properties'].split(','):
+            self._properties[aproperty] = HomieProperty(
+                aproperty, topics, self._topic_base)
 
     @property
     def nodeId(self):
@@ -147,22 +145,18 @@ class HomieNode(Object):
         return self._properties[property_name]
 
 
-
-
-
-class HomieProperty (Object)
+class HomieProperty (Object):
     # A definition of a Homie Property
     def __init__(self, property_id, topics[], parent_base):
 
-        self._property_id= property_id
-        self._topic_base= f'{parent_base, property_id}/{}'
-        self._settable= topics[f'{self._topic_base}/$settable']
+        self._property_id = property_id
+        self._topic_base = f'{parent_base, property_id}/{}'
+        self._settable = topics[f'{self._topic_base}/$settable']
 
-        self._unit= topics[f'{self._topic_base}/$unit']
+        self._unit = topics[f'{self._topic_base}/$unit']
         self._datatype topics[f'{self._topic_base}/$datatype']
-        self._name= topics[f'{self._topic_base}/$name']
-        self._format= topics[f'{self._topic_base}/$format']
-
+        self._name = topics[f'{self._topic_base}/$name']
+        self._format = topics[f'{self._topic_base}/$format']
 
     @property
     def propertyId(self):
