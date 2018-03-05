@@ -1,6 +1,7 @@
 # Imports
 import logging
-from .mqtt_message import MQTTMessage
+import re
+from .mqtt_message import (MQTTMessage, DEFAULT_MQTT_MESSAGE)
 
 # Types
 from ._typing import (MessageQue)
@@ -11,24 +12,26 @@ DISCOVER_NODES = re.compile(r'(?P<prefix_topic>\w[-/\w]*\w)/(?P<device_id>\w[-\w
 # GLOBALS
 _LOGGER = logging.getLogger(__name__)
 
+def _get_mqtt_message(topics: MessageQue, topic:str):
+    return topics.get(topic, DEFAULT_MQTT_MESSAGE)
 
-class HomieProperty (Object):
+class HomieProperty:
     # A definition of a Homie Property
     def __init__(self, base_topic: str, property_id: str, topics: MessageQue):
-        _LOGGER.log(f"Homie Property Discovered. ID: {property_id}")
+        _LOGGER.info(f"Homie Property Discovered. ID: {property_id}")
         self._base_topic = base_topic
         self._property_id = property_id
         self._prefix_topic = f'{base_topic}/{property_id}'
 
     def _update(self, topics: MessageQue):
-        self._settable = topics[f'{self._prefix_topic}/$settable']
-        self._unit = topics[f'{self._prefix_topic}/$unit']
-        self._datatype = topics[f'{self._prefix_topic}/$datatype']
-        self._name = topics[f'{self._prefix_topic}/$name']
-        self._format = topics[f'{self._prefix_topic}/$format']
+        self._settable = _get_mqtt_message(topics, f'{self._prefix_topic}/$settable').payload
+        self._unit = _get_mqtt_message(topics, f'{self._prefix_topic}/$unit').payload
+        self._datatype = _get_mqtt_message(topics, f'{self._prefix_topic}/$datatype').payload
+        self._name = _get_mqtt_message(topics, f'{self._prefix_topic}/$name').payload
+        self._format = _get_mqtt_message(topics, f'{self._prefix_topic}/$format').payload
 
     @property
-    def propertyId(self):
+    def property_id(self):
         """Return the Property Id of the Property."""
         return self._property_id
 
@@ -58,10 +61,10 @@ class HomieProperty (Object):
         return self._format
 
 
-class HomieNode(Object):
+class HomieNode:
     # A definition of a Homie Node
     def __init__(self, base_topic: str, node_id: str, topics: MessageQue):
-        _LOGGER.log(f"Homie Node Discovered. ID: {node_id}")
+        _LOGGER.info(f"Homie Node Discovered. ID: {node_id}")
         self._properties = list()
         self._base_topic = base_topic
         self._node_id = node_id
@@ -70,22 +73,23 @@ class HomieNode(Object):
 
     def _update(self, topics: MessageQue):
         # Load Node Properties
-        self._type = topics[f'{self._prefix_topic}/$type'].payload
-        # self._name = topics[f'{self._prefix_topic}/$name']
+        self._type = _get_mqtt_message(topics, f'{self._prefix_topic}/$type').payload
+        # self._name = _get_mqtt_message(topics, f'{self._prefix_topic}/$name')
 
         # load Properties that are avaliable to this Node
         self._discover_property(topics)
 
     def _discover_property(self, topics: MessageQue):
-        properties_message = topics[f'{self._prefix_topic)}/$properties'].payload
+        properties_message = _get_mqtt_message(topics, f'{self._prefix_topic}/$properties').payload
         if properties_message:
             properties = properties_message.split(',')
             for property_id in properties:
                 if not self._has_property(property_id):
-                    property = HomieNode(self._prefix_topic, property_id, topics)
+                    property = HomieProperty(self._prefix_topic, property_id, topics)
+                    self._properties.append(property)
 
     def _has_property(self, property_id: str):
-        if self._get_node(property_id) is None:
+        if self._get_property(property_id) is None:
             return False
         return True
 
@@ -126,11 +130,11 @@ class HomieNode(Object):
         return self._properties[property_name]
 
 
-class HomieDevice(Object):
+class HomieDevice:
     # A definition of a Homie Device
 
     def __init__(self, base_topic: str, device_id: str, topics: MessageQue):
-        _LOGGER.log(f"Homie Device Discovered. ID: {device_id}")
+        _LOGGER.info(f"Homie Device Discovered. ID: {device_id}")
         self._nodes = list()
         self._base_topic = base_topic
         self._device_id = device_id
@@ -139,24 +143,24 @@ class HomieDevice(Object):
 
     def _update(self, topics: MessageQue):
         # Load Device Properties
-        self._convention_version = topics[f'{self._prefix_topic}/$homie'].payload
-        self._online = topics[f'{self._prefix_topic}/$online'].payload
-        self._name = topics[f'{self._prefix_topic}/$name'].payload
-        self._ip = topics[f'{self._prefix_topic}/$localip'].payload
-        self._mac = topics[f'{self._prefix_topic}/$mac'].payload
+        self._convention_version = _get_mqtt_message(topics, f'{self._prefix_topic}/$homie').payload
+        self._online = _get_mqtt_message(topics, f'{self._prefix_topic}/$online').payload
+        self._name = _get_mqtt_message(topics, f'{self._prefix_topic}/$name').payload
+        self._ip = _get_mqtt_message(topics, f'{self._prefix_topic}/$localip').payload
+        self._mac = _get_mqtt_message(topics, f'{self._prefix_topic}/$mac').payload
 
         # Load Device Stats Properties
-        self._uptime = topics[f'{self._prefix_topic}/$stats/uptime'].payload
-        self._signal = topics[f'{self._prefix_topic}/$stats/signal'].payload
-        self._i = topics[f'{self._prefix_topic}/$stats/interval'].payload
+        self._uptime = _get_mqtt_message(topics, f'{self._prefix_topic}/$stats/uptime').payload
+        self._signal = _get_mqtt_message(topics, f'{self._prefix_topic}/$stats/signal').payload
+        self._i = _get_mqtt_message(topics, f'{self._prefix_topic}/$stats/interval').payload
 
         # Load Firmware Properties
-        self._fw_name = topics[f'{self._prefix_topic}/$fw/name'].payload
-        self._fw_version = topics[f'{self._prefix_topic}/$fw/version'].payload
-        self._fw_checksum = topics[f'{self._prefix_topic}/$fw/checksum'].payload
+        self._fw_name = _get_mqtt_message(topics, f'{self._prefix_topic}/$fw/name').payload
+        self._fw_version = _get_mqtt_message(topics, f'{self._prefix_topic}/$fw/version').payload
+        self._fw_checksum = _get_mqtt_message(topics, f'{self._prefix_topic}/$fw/checksum').payload
 
         # Load Implementation Properties
-        self._implementation = topics[f'{self._prefix_topic}/$implementation'].payload
+        self._implementation = _get_mqtt_message(topics, f'{self._prefix_topic}/$implementation').payload
 
         # Load Nodes that are available for this Device
         self._discover_nodes(topics)
@@ -171,7 +175,7 @@ class HomieDevice(Object):
                 node_id = node_match.group('device_id')
                 if not self._has_node(node_id):
                     node = HomieNode(node_base_topic, node_id, topics)
-                    self._nodes.append(device)
+                    self._nodes.append(node)
 
     def _has_node(self, node_id: str):
         if self._get_node(node_id) is None:

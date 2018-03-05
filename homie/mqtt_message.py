@@ -34,3 +34,6 @@ class MQTTMessage:
     def timeStamp(self):
         """Return the time stamp of the message."""
         return self._time_stamp
+
+
+DEFAULT_MQTT_MESSAGE = MQTTMessage('', '', 0)

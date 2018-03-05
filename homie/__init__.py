@@ -12,13 +12,6 @@ from homeassistant.const import (
     CONF_UNIT_OF_MEASUREMENT,
     CONF_PLATFORM
 )
-from homeassistant.components.mqtt import (
-    CONF_AVAILABILITY_TOPIC,
-    CONF_STATE_TOPIC,
-    CONF_PAYLOAD_AVAILABLE,
-    CONF_PAYLOAD_NOT_AVAILABLE,
-    CONF_QOS
-)
 from homeassistant.const import (EVENT_HOMEASSISTANT_STOP)
 from .mqtt_message import (MQTTMessage)
 from .homie_classes import (HomieDevice)
@@ -44,8 +37,8 @@ HOMIE_SUPPORTED_VERSION = '2.0.0'
 
 # GLOBALS
 _LOGGER = logging.getLogger(__name__)
-_Task: asyncio.Task = None
-_DISCOVERY_PREFIX = 'homie/'
+_Task: asyncio.Task
+_DISCOVERY_PREFIX = 'homie'
 _MQTT_MESSAGES: Dict[str, MQTTMessage] = dict()
 _DEVICES: Devices = list()
 
@@ -66,12 +59,14 @@ async def async_setup(hass: HomeAssistantType, config: ConfigType):
 
 async def async_destroy(event):
     _LOGGER.info(f"Component - {DOMAIN} - Destroy")
-    _Task.cancel()
+    if _Task:
+        _Task.cancel()
 
 
 async def async_start(hass: HomeAssistantType, config: ConfigType):
     _LOGGER.info(f"Component - {DOMAIN} - Start")
     await mqtt.async_subscribe(hass, f'{_DISCOVERY_PREFIX}/#', async_device_message_received, 1)
+    return True
 
 
 async def async_device_message_received(topic: str, payload: str, qos: int):
@@ -82,23 +77,33 @@ async def async_device_message_received(topic: str, payload: str, qos: int):
 
 async def async_interval():
     while True:
-        # Process messages
         async_proccess_messages()
-        # Remove old message from the que
-        for topic, message in _MQTT_MESSAGES.items():
-            if (time.clock() - message.timeStamp) > MESSAGE_MAX_KEEP_SECONDS:
-                del _MQTT_MESSAGES[topic]
+        remove_messages()
         await asyncio.sleep(INTERVAL_SECONDS)
 
 
-async def async_proccess_messages():
-    discover_devices(_MQTT_MESSAGES)
+def async_proccess_messages():
+    discover_devices()
     for device in _DEVICES:
         device._update(_MQTT_MESSAGES)
-    # Remove seen messages from queu
+    remove_messages()
+   
+
+def remove_messages():
+    to_remove = list()
+    # Remove old message from the que
     for topic, message in _MQTT_MESSAGES.items():
-        if message.seen:
-            del _MQTT_MESSAGES[topic]
+        if message.seen or (time.clock() - message.timeStamp) > MESSAGE_MAX_KEEP_SECONDS:
+            to_remove.append(topic)
+    for topic in to_remove:
+        del _MQTT_MESSAGES[topic]
+
+
+def has_device(device_id: str):
+    for device in _DEVICES:
+        if device.device_id == device_id:
+            return True
+    return False
 
 
 def discover_devices():
@@ -108,13 +113,13 @@ def discover_devices():
             device_base_topic = device_match.group('prefix_topic')
             device_id = device_match.group('device_id')
             if not has_device(device_id):
-                device = HomieDevice(
-                    device_base_topic, device_id, _MQTT_MESSAGES)
+                device = HomieDevice(device_base_topic, device_id, _MQTT_MESSAGES)
                 _DEVICES.append(device)
 
 
-def has_device(device_id: str):
+def setup_device_components():
     for device in _DEVICES:
-        if device.device_id == device_id:
-            return True
-    return False
+        # Do device relate component Suff
+
+        # Do Node related component stuff
+
