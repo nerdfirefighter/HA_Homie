@@ -3,15 +3,13 @@ import asyncio
 import logging
 import re
 import time
+import voluptuous as vol
+
 
 import homeassistant.components.mqtt as mqtt
+from homeassistant.components.mqtt import (CONF_DISCOVERY_PREFIX, CONF_QOS, valid_discovery_topic, _VALID_QOS_SCHEMA)
 from homeassistant.helpers.discovery import (async_load_platform)
-from homeassistant.const import (
-    CONF_FORCE_UPDATE, CONF_NAME,
-    CONF_VALUE_TEMPLATE, STATE_UNKNOWN,
-    CONF_UNIT_OF_MEASUREMENT,
-    CONF_PLATFORM
-)
+from homeassistant.helpers import (config_validation as cv)
 from homeassistant.const import (EVENT_HOMEASSISTANT_STOP)
 from .mqtt_message import (MQTTMessage)
 from .homie_classes import (HomieDevice)
@@ -23,7 +21,7 @@ from ._typing import (MessageQue)
 
 Devices = List[HomieDevice]
 
-# RegEx
+# REGEX
 DISCOVER_DEVICE = re.compile(r'(?P<prefix_topic>\w[-/\w]*\w)/(?P<device_id>\w[-\w]*\w)/\$homie')
 
 
@@ -32,27 +30,43 @@ DOMAIN = 'homie'
 DEPENDENCIES = ['mqtt']
 INTERVAL_SECONDS = 1
 MESSAGE_MAX_KEEP_SECONDS = 5
-CONFG_DISCOVERY_PREFIX = 'discovery_prefix'
 HOMIE_SUPPORTED_VERSION = '2.0.0'
+DEFAULT_DISCOVERY_PREFIX = 'homie'
+DEFAULT_QOS = 1
+
+# CONFIg
+CONFIG_SCHEMA = vol.Schema({
+    DOMAIN: vol.Schema({
+        vol.Optional(CONF_DISCOVERY_PREFIX, default=DEFAULT_DISCOVERY_PREFIX): valid_discovery_topic,
+        vol.Optional(CONF_QOS, default=DEFAULT_QOS): _VALID_QOS_SCHEMA,
+    }),
+}, extra=vol.ALLOW_EXTRA)
 
 # GLOBALS
 _LOGGER = logging.getLogger(__name__)
 _Task: asyncio.Task
-_DISCOVERY_PREFIX = 'homie'
 _MQTT_MESSAGES: Dict[str, MQTTMessage] = dict()
 _DEVICES: Devices = list()
 
 
 async def async_setup(hass: HomeAssistantType, config: ConfigType):
-    # Entry Point
+    """Setup the Homie service."""
     _LOGGER.info(f"Component - {DOMAIN} - Setup")
+
+    # Config
+    conf = config.get(DOMAIN)
+    if conf is None:
+        conf = CONFIG_SCHEMA({DOMAIN: {}})[DOMAIN]
+    
+    discovery_prefix = conf.get(CONF_DISCOVERY_PREFIX)
+    qos = conf.get(CONF_QOS)
 
     # Create Proccess Task
     _Task = hass.loop.create_task(async_interval())
     hass.bus.async_listen_once(EVENT_HOMEASSISTANT_STOP, async_destroy)
 
     # Sart
-    await async_start(hass, config)
+    await async_start(hass, discovery_prefix, qos)
 
     return True
 
@@ -63,9 +77,10 @@ async def async_destroy(event):
         _Task.cancel()
 
 
-async def async_start(hass: HomeAssistantType, config: ConfigType):
-    _LOGGER.info(f"Component - {DOMAIN} - Start")
-    await mqtt.async_subscribe(hass, f'{_DISCOVERY_PREFIX}/#', async_device_message_received, 1)
+async def async_start(hass: HomeAssistantType, discovery_prefix: str, qos:int):
+    """Start the Homie service."""
+    _LOGGER.info(f"Component - {DOMAIN} - Start. Discovery Topic: {discovery_prefix}/")
+    await mqtt.async_subscribe(hass, f'{discovery_prefix}/#', async_device_message_received, qos)
     return True
 
 

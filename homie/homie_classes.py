@@ -1,12 +1,12 @@
-# Imports
+# IMPORTS
 import logging
 import re
 from .mqtt_message import (MQTTMessage, DEFAULT_MQTT_MESSAGE)
 
-# Types
+# TYPES
 from ._typing import (MessageQue)
 
-# RegEx
+# REGEX
 DISCOVER_NODES = re.compile(r'(?P<prefix_topic>\w[-/\w]*\w)/(?P<device_id>\w[-\w]*\w)/\$properties')
 
 # GLOBALS
