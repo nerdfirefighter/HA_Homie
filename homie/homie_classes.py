@@ -12,134 +12,21 @@ DISCOVER_NODES = re.compile(r'(?P<prefix_topic>\w[-/\w]*\w)/(?P<device_id>\w[-\w
 # GLOBALS
 _LOGGER = logging.getLogger(__name__)
 
+
+# TODO: Fix this as we dont want to set to empty when no topic in dic
 def _get_mqtt_message(topics: MessageQue, topic:str):
     return topics.get(topic, DEFAULT_MQTT_MESSAGE)
-
-class HomieProperty:
-    # A definition of a Homie Property
-    def __init__(self, base_topic: str, property_id: str, topics: MessageQue):
-        _LOGGER.info(f"Homie Property Discovered. ID: {property_id}")
-        self._base_topic = base_topic
-        self._property_id = property_id
-        self._prefix_topic = f'{base_topic}/{property_id}'
-
-    def _update(self, topics: MessageQue):
-        self._settable = _get_mqtt_message(topics, f'{self._prefix_topic}/$settable').payload
-        self._unit = _get_mqtt_message(topics, f'{self._prefix_topic}/$unit').payload
-        self._datatype = _get_mqtt_message(topics, f'{self._prefix_topic}/$datatype').payload
-        self._name = _get_mqtt_message(topics, f'{self._prefix_topic}/$name').payload
-        self._format = _get_mqtt_message(topics, f'{self._prefix_topic}/$format').payload
-
-    @property
-    def property_id(self):
-        """Return the Property Id of the Property."""
-        return self._property_id
-
-    @property
-    def settable(self):
-        """Return the Settablity of the Property."""
-        return self._settable
-
-    @property
-    def name(self):
-        """Return the Name of the Property."""
-        return self._name
-
-    @property
-    def unit(self):
-        """Return the Unit for the Property."""
-        return self._unit
-
-    @property
-    def dataType(self):
-        """Return the Data Type for the Property."""
-        return self._datatype
-
-    @property
-    def format(self):
-        """Return the Format for the Property."""
-        return self._format
-
-
-class HomieNode:
-    # A definition of a Homie Node
-    def __init__(self, base_topic: str, node_id: str, topics: MessageQue):
-        _LOGGER.info(f"Homie Node Discovered. ID: {node_id}")
-        self._properties = list()
-        self._base_topic = base_topic
-        self._node_id = node_id
-        self._prefix_topic = f'{base_topic}/{node_id}'
-        self._update(topics)
-
-    def _update(self, topics: MessageQue):
-        # Load Node Properties
-        self._type = _get_mqtt_message(topics, f'{self._prefix_topic}/$type').payload
-        # self._name = _get_mqtt_message(topics, f'{self._prefix_topic}/$name')
-
-        # load Properties that are avaliable to this Node
-        self._discover_property(topics)
-
-    def _discover_property(self, topics: MessageQue):
-        properties_message = _get_mqtt_message(topics, f'{self._prefix_topic}/$properties').payload
-        if properties_message:
-            properties = properties_message.split(',')
-            for property_id in properties:
-                if not self._has_property(property_id):
-                    property = HomieProperty(self._prefix_topic, property_id, topics)
-                    self._properties.append(property)
-
-    def _has_property(self, property_id: str):
-        if self._get_property(property_id) is None:
-            return False
-        return True
-
-    def _get_property(self, property_id: str):
-        for property in self._properties:
-            if property.property_id == property_id:
-                return property
-        return None
-
-    @property
-    def base_topic(self):
-        """Return the Base Topic of the node."""
-        return self._base_topic
-
-    @property
-    def node_id(self):
-        """Return the Node Id of the node."""
-        return self._node_id
-
-    @property
-    def type(self):
-        """Return the Type of the node."""
-        return self._type
-
-    # @property
-    # def name(self):
-    #     """Return the Name of the node."""
-    #     return self._name
-
-    @property
-    def properties(self):
-        """Return a Dictionary of properties for the node."""
-        return self._properties
-
-    @property
-    def property(self, property_name):
-        """Return a specific Property for the device."""
-        return self._properties[property_name]
 
 
 class HomieDevice:
     # A definition of a Homie Device
 
-    def __init__(self, base_topic: str, device_id: str, topics: MessageQue):
+    def __init__(self, base_topic: str, device_id: str):
         _LOGGER.info(f"Homie Device Discovered. ID: {device_id}")
         self._nodes = list()
         self._base_topic = base_topic
         self._device_id = device_id
         self._prefix_topic = f'{base_topic}/{device_id}'
-        self._update(topics)
 
     def _update(self, topics: MessageQue):
         # Load Device Properties
@@ -165,7 +52,8 @@ class HomieDevice:
         # Load Nodes that are available for this Device
         self._discover_nodes(topics)
         for node in self._nodes:
-            node._update(topics)
+            filtered_topics = {k:v for (k,v) in topics.items() if node._base_topic in k}
+            node._update(filtered_topics)
 
     def _discover_nodes(self, topics: MessageQue):
         for topic, message in topics.items():
@@ -174,7 +62,7 @@ class HomieDevice:
                 node_base_topic = node_match.group('prefix_topic')
                 node_id = node_match.group('device_id')
                 if not self._has_node(node_id):
-                    node = HomieNode(node_base_topic, node_id, topics)
+                    node = HomieNode(self, node_base_topic, node_id)
                     self._nodes.append(node)
 
     def _has_node(self, node_id: str):
@@ -255,10 +143,124 @@ class HomieDevice:
 
     @property
     def nodes(self):
-        """Return a Dictionary of Nodes for the device."""
+        """Return a List of Nodes for the device."""
         return self._nodes
 
-    @property
     def node(self, node_id):
         """Return a specific Node for the device."""
         return self._get_node(node_name)
+    
+    def __str__(self):
+        return f"{self.device_id} - {self.name} - {len(self.nodes)}"
+
+
+class HomieNode:
+    # A definition of a Homie Node
+    def __init__(self, device: HomieDevice, base_topic: str, node_id: str):
+        _LOGGER.info(f"Homie Node Discovered. ID: {node_id}")
+        self._device = device
+        self._properties = list()
+        self._base_topic = base_topic
+        self._node_id = node_id
+        self._prefix_topic = f'{base_topic}/{node_id}'
+        self._is_setup = False
+
+    def _update(self, topics: MessageQue):
+        # Load Node Properties
+        self._type = _get_mqtt_message(topics, f'{self._prefix_topic}/$type').payload
+
+        # load Properties that are avaliable to this Node
+        self._discover_property(topics)
+
+    def _discover_property(self, topics: MessageQue):
+        properties_message = _get_mqtt_message(topics, f'{self._prefix_topic}/$properties').payload
+        if properties_message:
+            properties = properties_message.split(',')
+            for property_id in properties:
+                if not self._has_property(property_id):
+                    property = HomieProperty(self, self._prefix_topic, property_id, False)
+                    self._properties.append(property)
+
+    def _has_property(self, property_id: str):
+        if self._get_property(property_id) is None:
+            return False
+        return True
+
+    def _get_property(self, property_id: str):
+        for property in self._properties:
+            if property.property_id == property_id:
+                return property
+        return None
+
+    @property
+    def base_topic(self):
+        """Return the Base Topic of the node."""
+        return self._base_topic
+
+    @property
+    def node_id(self):
+        """Return the Node Id of the node."""
+        return self._node_id
+
+    @property
+    def type(self):
+        """Return the Type of the node."""
+        return self._type
+
+    @property
+    def properties(self):
+        """Return a List of properties for the node."""
+        return self._properties
+
+    def property(self, property_name: str):
+        """Return a specific Property for the node."""
+        return self._get_property(property_name)
+
+
+class HomieProperty:
+    # A definition of a Homie Property
+    def __init__(self, node: HomieNode, base_topic: str, property_id: str, settable: bool):
+        _LOGGER.info(f"Homie Property Discovered. ID: {property_id}")
+        self._node = node
+        self._base_topic = base_topic
+        self._property_id = property_id
+        self._settable = settable
+        self._prefix_topic = f'{base_topic}/{property_id}'
+
+    def _update(self, topics: MessageQue):
+        self._value = _get_mqtt_message(topics, self._prefix_topic).payload
+
+    @property
+    def property_id(self):
+        """Return the Property Id of the Property."""
+        return self._property_id
+    
+    @property
+    def value(self):
+        """Return the value of the Property."""
+        return self._value
+
+    @property
+    def settable(self):
+        """Return the Settablity of the Property."""
+        return self._settable
+
+    @property
+    def name(self):
+        """Return the Name of the Property."""
+        return self._name
+
+    @property
+    def unit(self):
+        """Return the Unit for the Property."""
+        return self._unit
+
+    @property
+    def dataType(self):
+        """Return the Data Type for the Property."""
+        return self._datatype
+
+    @property
+    def format(self):
+        """Return the Format for the Property."""
+        return self._format
