@@ -39,7 +39,7 @@ class HomieDevice:
         # Load Device Stats Properties
         self._uptime = _get_mqtt_message(topics, f'{self._prefix_topic}/$stats/uptime').payload
         self._signal = _get_mqtt_message(topics, f'{self._prefix_topic}/$stats/signal').payload
-        self._i = _get_mqtt_message(topics, f'{self._prefix_topic}/$stats/interval').payload
+        self._stats_interval = _get_mqtt_message(topics, f'{self._prefix_topic}/$stats/interval').payload
 
         # Load Firmware Properties
         self._fw_name = _get_mqtt_message(topics, f'{self._prefix_topic}/$fw/name').payload
@@ -92,7 +92,7 @@ class HomieDevice:
         return self._name
 
     @property
-    def home_version(self):
+    def homie_version(self):
         """Return the Homie Framework Version of the device."""
         return self._convention_version
 
@@ -117,7 +117,7 @@ class HomieDevice:
         return self._uptime
 
     @property
-    def uptime(self):
+    def signal(self):
         """Return the Signal of the device."""
         return self._signal
 
