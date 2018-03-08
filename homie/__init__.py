@@ -8,12 +8,12 @@ import voluptuous as vol
 
 import homeassistant.components.mqtt as mqtt
 from homeassistant.components.mqtt import (CONF_DISCOVERY_PREFIX, CONF_QOS, valid_discovery_topic, _VALID_QOS_SCHEMA)
-from homeassistant.helpers.discovery import (async_load_platform, load_platform)
+from homeassistant.helpers.discovery import (async_load_platform)
 from homeassistant.helpers.event import (async_track_time_interval)
 from homeassistant.helpers import (config_validation as cv)
 from homeassistant.const import (EVENT_HOMEASSISTANT_STOP)
 from .mqtt_message import (MQTTMessage)
-from .homie_classes import (HomieDevice)
+from .homie_classes import (HomieDevice, HomieNode, HomieProperty)
 
 # TYPES
 from typing import (Dict, List, Callable)
@@ -34,9 +34,8 @@ MESSAGE_MAX_KEEP_SECONDS = 5
 HOMIE_SUPPORTED_VERSION = '2.0.0'
 DEFAULT_DISCOVERY_PREFIX = 'homie'
 DEFAULT_QOS = 0
-KEY_HOMIE_DEVICES = 'HOMIE_DEVICES'
-KEY_HOMIE_DEVICE_ID = 'HOMIE_DEVICE_ID'
-KEY_HOMIE_NODE_ID = 'HOMIE_NODE_ID'
+KEY_HOMIE_ALREADY_DISCOVERED = 'KEY_HOMIE_ALREADY_DISCOVERED'
+KEY_HOMIE_ENTITY_ID = 'KEY_HOMIE_ENTITY_ID'
 
 # CONFIg
 CONFIG_SCHEMA = vol.Schema({
@@ -53,12 +52,10 @@ _LOGGER = logging.getLogger(__name__)
 @asyncio.coroutine
 def async_setup(hass: HomeAssistantType, config: ConfigType):
     """Setup the Homie service."""
-    _LOGGER.info(f"Component - {DOMAIN} - Setup")
-
     # Init
     _MQTT_MESSAGES = dict()
     _DEVICES = list()
-    hass.data[KEY_HOMIE_DEVICES] = _DEVICES
+    hass.data[KEY_HOMIE_ALREADY_DISCOVERED] = dict()
 
     # Config
     conf = config.get(DOMAIN)
@@ -79,7 +76,6 @@ def async_setup(hass: HomeAssistantType, config: ConfigType):
     # Destroy Homie
     @asyncio.coroutine
     def async_destroy(event):
-        _LOGGER.info(f"Component - {DOMAIN} - Destroy")
         if _Task: _Task()
 
     hass.bus.async_listen_once(EVENT_HOMEASSISTANT_STOP, async_destroy)
@@ -103,13 +99,11 @@ def async_setup(hass: HomeAssistantType, config: ConfigType):
         remove_messages()
 
     def remove_messages():
-        to_remove = list()
+        def expired(time_stamp: float):
+            return (time.clock() - time_stamp >= MESSAGE_MAX_KEEP_SECONDS)
         # Remove old message from the que
-        for topic, message in _MQTT_MESSAGES.items():
-            if message.seen or (time.clock() - message.timeStamp) > MESSAGE_MAX_KEEP_SECONDS:
-                to_remove.append(topic)
-        for topic in to_remove:
-            del _MQTT_MESSAGES[topic]
+        to_remove = [topic for (topic, message) in _MQTT_MESSAGES.items() if message.seen or expired(message.time_stamp)]
+        for topic in to_remove: del _MQTT_MESSAGES[topic]
 
     def discover_devices():
         for topic, message in _MQTT_MESSAGES.items():
@@ -136,20 +130,21 @@ def async_setup(hass: HomeAssistantType, config: ConfigType):
 
             # Do Node related component stuff
             for node in device.nodes:
-                #_LOGGER.info(f"Node {node.node_id}")
-                if not node._is_setup:
+                if not node.is_setup:
+                    def get_entity_id():
+                        return f"{device.device_id}_{node.node_id}"
+
                     if node.type == 'sensor':
-                        # Setup Node as a Sensor
-                        _LOGGER.info(f"Loading Sensor Platform for {device.device_id} -> {node.node_id}")
-                        discovery_info = {KEY_HOMIE_DEVICE_ID: device.device_id, KEY_HOMIE_NODE_ID: node.node_id}
-                        yield from async_load_platform(hass, 'sensor', DOMAIN, discovery_info)
-                        node._is_setup = True
-                        _LOGGER.info(f"Done Loading Sensor Platform for {device.device_id} -> {node.node_id}")
+                        yield from setup_device_node_as_platform(get_entity_id(), node, 'sensor')
                     elif node.type == 'switch':
-                        # Setup Node as a Switch
                         None
 
+    @asyncio.coroutine
+    def setup_device_node_as_platform(entity_id: str, node: HomieNode, platform: str):
+        hass.data[KEY_HOMIE_ALREADY_DISCOVERED][entity_id] = node
+        discovery_info = {KEY_HOMIE_ENTITY_ID: entity_id}
+        yield from async_load_platform(hass, platform, DOMAIN, discovery_info)
+
+
     yield from async_start()
-
     return True
-

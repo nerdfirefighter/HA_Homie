@@ -171,6 +171,9 @@ class HomieNode:
 
         # load Properties that are avaliable to this Node
         self._discover_property(topics)
+        for property in self._properties:
+            filtered_topics = {k:v for (k,v) in topics.items() if property._base_topic in k}
+            property._update(filtered_topics)
 
     def _discover_property(self, topics: MessageQue):
         properties_message = _get_mqtt_message(topics, f'{self._prefix_topic}/$properties').payload
@@ -206,11 +209,23 @@ class HomieNode:
     def type(self):
         """Return the Type of the node."""
         return self._type
+    
+    @property
+    def is_setup(self):
+        """Return True if the node has been setup as a component"""
+        return self._is_setup
+    @is_setup.setter
+    def is_setup(self, value: bool):
+        self._is_setup = value
 
     @property
     def properties(self):
         """Return a List of properties for the node."""
         return self._properties
+
+    def has_property(self, property_name: str):
+        """Return a specific Property for the node."""
+        return self._has_property(property_name)
 
     def property(self, property_name: str):
         """Return a specific Property for the node."""
@@ -226,6 +241,8 @@ class HomieProperty:
         self._property_id = property_id
         self._settable = settable
         self._prefix_topic = f'{base_topic}/{property_id}'
+
+        self._value = None
 
     def _update(self, topics: MessageQue):
         self._value = _get_mqtt_message(topics, self._prefix_topic).payload

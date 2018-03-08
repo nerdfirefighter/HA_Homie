@@ -32,7 +32,7 @@ class MQTTMessage:
         return self._seen
 
     @property
-    def timeStamp(self):
+    def time_stamp(self):
         """Return the time stamp of the message."""
         return self._time_stamp
 
