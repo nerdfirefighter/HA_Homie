@@ -4,8 +4,7 @@ import logging
 
 from homeassistant.const import (STATE_UNKNOWN)
 from homeassistant.helpers.entity import (Entity)
-from custom_components.homie import (KEY_HOMIE_ALREADY_DISCOVERED, KEY_HOMIE_ENTITY_ID)
-from custom_components.homie.homie_classes import (HomieNode)
+from custom_components.homie import (KEY_HOMIE_ALREADY_DISCOVERED, KEY_HOMIE_ENTITY_ID, HomieNode)
 
 # TYPINGS
 from homeassistant.helpers.typing import (HomeAssistantType, ConfigType)

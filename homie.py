@@ -11,20 +11,16 @@ from homeassistant.components.mqtt import (CONF_DISCOVERY_PREFIX, CONF_QOS, vali
 from homeassistant.helpers.discovery import (async_load_platform)
 from homeassistant.helpers.event import (async_track_time_interval)
 from homeassistant.helpers import (config_validation as cv)
-from homeassistant.const import (EVENT_HOMEASSISTANT_STOP)
-from .mqtt_message import (MQTTMessage)
-from .homie_classes import (HomieDevice, HomieNode, HomieProperty)
-
+from homeassistant.const import (EVENT_HOMEASSISTANT_STOP, STATE_UNKNOWN)
+from homeassistant.core import (callback)
 # TYPES
-from typing import (Dict, List, Callable)
+from typing import (Dict, List)
 from homeassistant.helpers.typing import (HomeAssistantType, ConfigType)
-from ._typing import (MessageQue)
-Devices = Dict[str, HomieDevice]
-MessageQue = Dict[str, MQTTMessage]
 
 # REGEX
 DISCOVER_DEVICE = re.compile(r'(?P<prefix_topic>\w[-/\w]*\w)/(?P<device_id>\w[-\w]*\w)/\$homie')
-DISCOVER_NODES = re.compile(r'(?P<prefix_topic>\w[-/\w]*\w)/(?P<device_id>\w[-\w]*\w)/\$properties')
+DISCOVER_NODES = re.compile(r'(?P<prefix_topic>\w[-/\w]*\w)/(?P<node_id>\w[-\w]*\w)/\$properties')
+DISCOVER_PROPERTIES = re.compile(r'(?P<property_id>\w[-/\w]*\w)(\[(?P<range_start>[0-9])-(?P<range_end>[0-9]+)\])?(?P<settable>:settable)?')
 
 # CONSTANTS
 DOMAIN = 'homie'
@@ -63,23 +59,25 @@ async def async_setup(hass: HomeAssistantType, config: ConfigType):
     qos = conf.get(CONF_QOS)
 
     # Destroy Homie
-    async def async_destroy(event):
-        # TODO: unsub?
-        pass
-    hass.bus.async_listen_once(EVENT_HOMEASSISTANT_STOP, async_destroy)
+    # async def async_destroy(event):
+    #     # TODO: unsub?
+    #     pass
+    # hass.bus.async_listen_once(EVENT_HOMEASSISTANT_STOP, async_destroy)
 
     # Sart
     async def async_start():
         _LOGGER.info(f"Component - {DOMAIN} - Start. Discovery Topic: {discovery_prefix}/")
-        await from mqtt.async_subscribe(hass, f'{discovery_prefix}/+/$homie', async_discover_message_received, qos)
+        await mqtt.async_subscribe(hass, f'{discovery_prefix}/+/$homie', async_discover_message_received, qos)
 
     async def async_discover_message_received(topic: str, payload: str, qos: int):
         device_match = DISCOVER_DEVICE.match(topic)
-            if device_match and payload == HOMIE_SUPPORTED_VERSION:
-                device_base_topic = device_match.group('prefix_topic')
-                device_id = device_match.group('device_id')
-                if device_id not in _DEVICES:
-                    _DEVICES[device_id] = HomieDevice(hass, device_base_topic, device_id, {"qos":qos})
+        if device_match and payload == HOMIE_SUPPORTED_VERSION:
+            device_base_topic = device_match.group('prefix_topic')
+            device_id = device_match.group('device_id')
+            if device_id not in _DEVICES:
+                device = HomieDevice(device_base_topic, device_id)
+                await device._async_setup(hass, qos)
+                _DEVICES[device_id] = device
     
     async def async_setup_device_components():
         for device in _DEVICES:
@@ -94,105 +92,93 @@ async def async_setup(hass: HomeAssistantType, config: ConfigType):
                         return f"{device.device_id}_{node.node_id}"
 
                     if node.type == 'sensor':
-                        await from setup_device_node_as_platform(get_entity_id(), node, 'sensor')
+                        await setup_device_node_as_platform(get_entity_id(), node, 'sensor')
                     elif node.type == 'switch':
                         None
 
     async def setup_device_node_as_platform(entity_id: str, node: HomieNode, platform: str):
         hass.data[KEY_HOMIE_ALREADY_DISCOVERED][entity_id] = node
         discovery_info = {KEY_HOMIE_ENTITY_ID: entity_id}
-        await from async_load_platform(hass, platform, DOMAIN, discovery_info)
+        await async_load_platform(hass, platform, DOMAIN, discovery_info)
 
 
-    await from async_start()
+    await async_start()
     return True
 
 
 # Types
-class MQTTMessage:
-    def __init__(self, topic: str, payload: str, qos: int):
-        self._topic = topic
-        self._payload = payload
-        self._qos = qos
-        self._seen = False
-        self._time_stamp = time.clock()
+class ChangeListener(object):
+    def __init__(self):
+        super(ChangeListener, self).__init__()
+        self._listeners = list()
 
-    @property
-    def topic(self):
-        """Return the topic of the message."""
-        return self._topic
+    def __setattr__(self, name: str, value: str):
+        super(ChangeListener, self).__setattr__(name, value)
+        for action in self._listeners: action()
 
-    @property
-    def payload(self):
-        """Return the payload of the message."""
-        self._seen = True
-        return self._payload
+    @callback
+    def add_listener(self, action):
+        self._listeners.append(action)
 
-    @property
-    def qos(self):
-        """Return the qos of the message."""
-        return self._qos
-
-    @property
-    def seen(self):
-        """Return true if the message has been seen"""
-        return self._seen
-
-    @property
-    def time_stamp(self):
-        """Return the time stamp of the message."""
-        return self._time_stamp
-
-
-DEFAULT_MQTT_MESSAGE = MQTTMessage('', '', 0)
-
-
-# TODO: Fix this as we dont want to set to empty when no topic in dic
-def _get_mqtt_message(topics: MessageQue, topic:str):
-    return topics.get(topic, DEFAULT_MQTT_MESSAGE)
-
-
-class HomieDevice:
+class HomieDevice(ChangeListener):
     # A definition of a Homie Device
-    def __init__(self, hass:HomeAssistantType, base_topic: str, device_id: str, options: dict):
+    def __init__(self, base_topic: str, device_id: str):
+        super(HomieDevice, self).__init__()
         _LOGGER.info(f"Homie Device Discovered. ID: {device_id}")
         self._nodes = dict()
         self._base_topic = base_topic
         self._device_id = device_id
         self._prefix_topic = f'{base_topic}/{device_id}'
 
+        self._convention_version = STATE_UNKNOWN
+        self._online = STATE_UNKNOWN
+        self._name = STATE_UNKNOWN
+        self._ip = STATE_UNKNOWN
+        self._mac = STATE_UNKNOWN
+        self._uptime = STATE_UNKNOWN
+        self._signal = STATE_UNKNOWN
+        self._stats_interval = STATE_UNKNOWN
+        self._fw_name = STATE_UNKNOWN
+        self._fw_version = STATE_UNKNOWN
+        self._fw_checksum = STATE_UNKNOWN
+        self._implementation = STATE_UNKNOWN
+        
+    async def _async_setup(self, hass:HomeAssistantType, qos):
         async def async_discover_message_received(topic: str, payload: str, qos: int):
             node_match = DISCOVER_NODES.match(topic)
             if node_match:
                 node_base_topic = node_match.group('prefix_topic')
-                node_id = node_match.group('device_id')
+                node_id = node_match.group('node_id')
                 if node_id not in self._nodes:
-                    self._nodes[node_id] = HomieNode(hass, self, node_base_topic, node_id, {**options})
+                    node = HomieNode(self, node_base_topic, node_id)
+                    await node._async_setup(hass, qos, payload)
+                    self._nodes[node_id] = node
 
-        await mqtt.async_subscribe(hass, f'{this._prefix_topic}/+/$properties', async_discover_message_received, options['qos'])
-        await mqtt.async_subscribe(hass, f'{this._prefix_topic}', self._update, options['qos'])
+        await mqtt.async_subscribe(hass, f'{self._prefix_topic}/+/$properties', async_discover_message_received, qos)
+        await mqtt.async_subscribe(hass, f'{self._prefix_topic}', self._async_update, qos)
 
-    async def _update(self, topic: str, payload: str, qos: int):
+    async def _async_update(self, topic: str, payload: str, qos: int):
+        topic = topic.replace(f'{self._prefix_topic}/', '')
         # Load Device Properties
-        if f'{self._prefix_topic}/$homie' in topic: self._convention_version = payload
-        self._convention_version = _get_mqtt_message(topics, f'{self._prefix_topic}/$homie').payload
-        self._online = _get_mqtt_message(topics, f'{self._prefix_topic}/$online').payload
-        self._name = _get_mqtt_message(topics, f'{self._prefix_topic}/$name').payload
-        self._ip = _get_mqtt_message(topics, f'{self._prefix_topic}/$localip').payload
-        self._mac = _get_mqtt_message(topics, f'{self._prefix_topic}/$mac').payload
+        if topic == '$homie': self._convention_version = payload
+        if topic == '$homie': self._convention_version = payload
+        if topic == '$online': self._online = payload
+        if topic == '$name': self._name = payload
+        if topic == '$localip': self._ip = payload
+        if topic == '$mac': self._mac = payload
 
         # Load Device Stats Properties
-        self._uptime = _get_mqtt_message(topics, f'{self._prefix_topic}/$stats/uptime').payload
-        self._signal = _get_mqtt_message(topics, f'{self._prefix_topic}/$stats/signal').payload
-        self._stats_interval = _get_mqtt_message(topics, f'{self._prefix_topic}/$stats/interval').payload
+        if topic == '$stats/uptime': self._uptime = payload
+        if topic == '$stats/signal': self._signal = payload
+        if topic == '$stats/interval': self._stats_interval = payload
 
         # Load Firmware Properties
-        self._fw_name = _get_mqtt_message(topics, f'{self._prefix_topic}/$fw/name').payload
-        self._fw_version = _get_mqtt_message(topics, f'{self._prefix_topic}/$fw/version').payload
-        self._fw_checksum = _get_mqtt_message(topics, f'{self._prefix_topic}/$fw/checksum').payload
+        if topic == '$fw/name': self._fw_name = payload
+        if topic == '$fw/version': self._fw_version = payload
+        if topic == '$fw/checksum': self._fw_checksum = payload
 
         # Load Implementation Properties
-        self._implementation = _get_mqtt_message(topics, f'{self._prefix_topic}/$implementation').payload
+        if topic == '$implementation': self._implementation = payload
 
     @property
     def base_topic(self):
@@ -261,57 +247,45 @@ class HomieDevice:
 
     @property
     def nodes(self):
-        """Return a List of Nodes for the device."""
+        """Return a Dict of Nodes for the device."""
         return self._nodes
 
     def node(self, node_id):
         """Return a specific Node for the device."""
         return self._nodes[node_name]
-    
-    def __str__(self):
-        return f"{self.device_id} - {self.name} - {len(self.nodes)}"
 
 
-class HomieNode:
+class HomieNode(ChangeListener):
     # A definition of a Homie Node
-    def __init__(self, hass: HomeAssistantType, device: HomieDevice, base_topic: str, node_id: str, options: dict):
+    def __init__(self, device: HomieDevice, base_topic: str, node_id: str):
+        super(HomieNode, self).__init__()
         _LOGGER.info(f"Homie Node Discovered. ID: {node_id}")
         self._device = device
-        self._properties = list()
+        self._properties = dict()
         self._base_topic = base_topic
         self._node_id = node_id
         self._prefix_topic = f'{base_topic}/{node_id}'
         self._is_setup = False
 
-    def _update(self, topics: MessageQue):
+        self._type = STATE_UNKNOWN
+
+    async def _async_setup(self, hass: HomeAssistantType, qos: int, properties_str: str):
+        for property_match in DISCOVER_PROPERTIES.finditer(properties_str):
+            property_id = property_match.group('property_id')
+            if property_id not in self._properties:
+                property_settable = True if property_match.group('settable') is not None else False
+                property_range = (int(property_match.group('range_start')), int(property_match.group('range_end'))) if property_match.group('range_start') is not None else ()
+                property = HomieProperty(self, self._prefix_topic, property_id, property_settable, property_range)
+                await property._async_setup(hass, qos)
+                self._properties[property_id] = property
+
+        await mqtt.async_subscribe(hass, f'{self._prefix_topic}', self._async_update, qos)
+
+
+    async def _async_update(self, topic: str, payload: str, qos: int):
+        topic = topic.replace(f'{self._prefix_topic}/', '')
         # Load Node Properties
-        self._type = _get_mqtt_message(topics, f'{self._prefix_topic}/$type').payload
-
-        # load Properties that are avaliable to this Node
-        self._discover_property(topics)
-        for property in self._properties:
-            filtered_topics = {k:v for (k,v) in topics.items() if property._base_topic in k}
-            property._update(filtered_topics)
-
-    def _discover_property(self, topics: MessageQue):
-        properties_message = _get_mqtt_message(topics, f'{self._prefix_topic}/$properties').payload
-        if properties_message:
-            properties = properties_message.split(',')
-            for property_id in properties:
-                if not self._has_property(property_id):
-                    property = HomieProperty(self, self._prefix_topic, property_id, False)
-                    self._properties.append(property)
-
-    def _has_property(self, property_id: str):
-        if self._get_property(property_id) is None:
-            return False
-        return True
-
-    def _get_property(self, property_id: str):
-        for property in self._properties:
-            if property.property_id == property_id:
-                return property
-        return None
+        if topic == '$type': self._type = payload
 
     @property
     def base_topic(self):
@@ -338,32 +312,37 @@ class HomieNode:
 
     @property
     def properties(self):
-        """Return a List of properties for the node."""
+        """Return a Dict of properties for the node."""
         return self._properties
 
     def has_property(self, property_name: str):
         """Return a specific Property for the node."""
-        return self._has_property(property_name)
+        return property_name in self._properties
 
     def property(self, property_name: str):
         """Return a specific Property for the node."""
-        return self._get_property(property_name)
+        return self._properties[property_name]
 
 
-class HomieProperty:
+class HomieProperty(ChangeListener):
     # A definition of a Homie Property
-    def __init__(self, node: HomieNode, base_topic: str, property_id: str, settable: bool):
+    def __init__(self, node: HomieNode, base_topic: str, property_id: str, settable: bool, range_tup: tuple):
+        super(HomieProperty, self).__init__()
         _LOGGER.info(f"Homie Property Discovered. ID: {property_id}")
         self._node = node
         self._base_topic = base_topic
         self._property_id = property_id
         self._settable = settable
+        self._range = range_tup
         self._prefix_topic = f'{base_topic}/{property_id}'
 
-        self._value = None
+        self._value = STATE_UNKNOWN
+    
+    async def _async_setup(self, hass: HomeAssistantType, qos: int):
+        await mqtt.async_subscribe(hass, f'{self._prefix_topic}', self._async_update, qos)
 
-    def _update(self, topics: MessageQue):
-        self._value = _get_mqtt_message(topics, self._prefix_topic).payload
+    async def _async_update(self, topic: str, payload: str, qos: int):
+        if topic == self._prefix_topic: self._value = payload
 
     @property
     def property_id(self):
