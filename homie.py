@@ -5,7 +5,7 @@ import re
 import time
 import datetime
 import voluptuous as vol
-
+import functools
 import homeassistant.components.mqtt as mqtt
 from homeassistant.components.mqtt import (CONF_DISCOVERY_PREFIX, CONF_QOS, valid_discovery_topic, _VALID_QOS_SCHEMA)
 from homeassistant.helpers.discovery import (async_load_platform)
@@ -31,7 +31,7 @@ HOMIE_SUPPORTED_VERSION = '2.0.0'
 DEFAULT_DISCOVERY_PREFIX = 'homie'
 DEFAULT_QOS = 0
 KEY_HOMIE_ALREADY_DISCOVERED = 'KEY_HOMIE_ALREADY_DISCOVERED'
-KEY_HOMIE_ENTITY_ID = 'KEY_HOMIE_ENTITY_ID'
+KEY_HOMIE_ENTITY_NAME = 'KEY_HOMIE_ENTITY_ID'
 
 # CONFIg
 CONFIG_SCHEMA = vol.Schema({
@@ -44,6 +44,14 @@ CONFIG_SCHEMA = vol.Schema({
 # GLOBALS
 _LOGGER = logging.getLogger(__name__)
 
+TRUE = 'true'
+FALSE = 'false'
+
+# Global Helper Functions
+def string_to_bool(val: str):
+    return val == TRUE
+def bool_to_string(val: bool):
+    return TRUE if val else FALSE
 
 async def async_setup(hass: HomeAssistantType, config: ConfigType):
     """Setup the Homie service."""
@@ -69,38 +77,38 @@ async def async_setup(hass: HomeAssistantType, config: ConfigType):
         _LOGGER.info(f"Component - {DOMAIN} - Start. Discovery Topic: {discovery_prefix}/")
         await mqtt.async_subscribe(hass, f'{discovery_prefix}/+/$homie', async_discover_message_received, qos)
 
-    async def async_discover_message_received(topic: str, payload: str, qos: int):
+    async def async_discover_message_received(topic: str, payload: str, msg_qos: int):
         device_match = DISCOVER_DEVICE.match(topic)
         if device_match and payload == HOMIE_SUPPORTED_VERSION:
             device_base_topic = device_match.group('prefix_topic')
             device_id = device_match.group('device_id')
             if device_id not in _DEVICES:
-                device = HomieDevice(device_base_topic, device_id)
-                await device._async_setup(hass, qos)
+                device = HomieDevice(device_base_topic, device_id, async_component_ready)
                 _DEVICES[device_id] = device
+                await device._async_setup(hass, qos)
     
-    async def async_setup_device_components():
-        for device in _DEVICES:
-            #_LOGGER.info(f"Device {device.device_id}")
-            # Do device relate component Suff
-            # TODO: create device sneosors for stats
+    async def async_component_ready(component):
+        if type(component) is HomieDevice:
+            await async_setup_device(component)
+        if type(component) is HomieNode:
+            await async_setup_node(component)
 
-            # Do Node related component stuff
-            for node in device.nodes:
-                if not node.is_setup:
-                    def get_entity_id():
-                        return f"{device.device_id}_{node.node_id}"
+    async def async_setup_device(device: HomieDevice):
+        pass
 
-                    if node.type == 'sensor':
-                        await setup_device_node_as_platform(get_entity_id(), node, 'sensor')
-                    elif node.type == 'switch':
-                        None
+    async def async_setup_node(node: HomieNode):
+        def get_entity_name():
+            return f"{node.device.device_id}_{node.node_id}"
+        if node.type == 'sensor':
+            await setup_device_node_as_platform(get_entity_name(), node, 'sensor')
+        elif node.type == 'switch':
+            await setup_device_node_as_platform(get_entity_name(), node, 'switch')
 
-    async def setup_device_node_as_platform(entity_id: str, node: HomieNode, platform: str):
-        hass.data[KEY_HOMIE_ALREADY_DISCOVERED][entity_id] = node
-        discovery_info = {KEY_HOMIE_ENTITY_ID: entity_id}
+
+    async def setup_device_node_as_platform(entity_name: str, node: HomieNode, platform: str):
+        hass.data[KEY_HOMIE_ALREADY_DISCOVERED][entity_name] = node
+        discovery_info = {KEY_HOMIE_ENTITY_NAME: entity_name}
         await async_load_platform(hass, platform, DOMAIN, discovery_info)
-
 
     await async_start()
     return True
@@ -109,26 +117,27 @@ async def async_setup(hass: HomeAssistantType, config: ConfigType):
 # Types
 class ChangeListener(object):
     def __init__(self):
-        super(ChangeListener, self).__init__()
+        super().__init__()
         self._listeners = list()
 
     def __setattr__(self, name: str, value: str):
         super(ChangeListener, self).__setattr__(name, value)
         for action in self._listeners: action()
 
-    @callback
     def add_listener(self, action):
         self._listeners.append(action)
 
 class HomieDevice(ChangeListener):
     # A definition of a Homie Device
-    def __init__(self, base_topic: str, device_id: str):
-        super(HomieDevice, self).__init__()
+    def __init__(self, base_topic: str, device_id: str, on_component_ready):
+        super().__init__()
         _LOGGER.info(f"Homie Device Discovered. ID: {device_id}")
         self._nodes = dict()
         self._base_topic = base_topic
         self._device_id = device_id
         self._prefix_topic = f'{base_topic}/{device_id}'
+        self._on_component_ready = on_component_ready
+        self._is_setup = False
 
         self._convention_version = STATE_UNKNOWN
         self._online = STATE_UNKNOWN
@@ -143,42 +152,46 @@ class HomieDevice(ChangeListener):
         self._fw_checksum = STATE_UNKNOWN
         self._implementation = STATE_UNKNOWN
         
-    async def _async_setup(self, hass:HomeAssistantType, qos):
-        async def async_discover_message_received(topic: str, payload: str, qos: int):
+    async def _async_setup(self, hass:HomeAssistantType, qos: int):
+        async def async_discover_message_received(topic: str, payload: str, msg_qos: int):
             node_match = DISCOVER_NODES.match(topic)
             if node_match:
                 node_base_topic = node_match.group('prefix_topic')
                 node_id = node_match.group('node_id')
                 if node_id not in self._nodes:
-                    node = HomieNode(self, node_base_topic, node_id)
-                    await node._async_setup(hass, qos, payload)
+                    node = HomieNode(self, node_base_topic, node_id, self._on_component_ready)
                     self._nodes[node_id] = node
+                    await node._async_setup(hass, qos, payload)
 
         await mqtt.async_subscribe(hass, f'{self._prefix_topic}/+/$properties', async_discover_message_received, qos)
-        await mqtt.async_subscribe(hass, f'{self._prefix_topic}', self._async_update, qos)
+        await mqtt.async_subscribe(hass, f'{self._prefix_topic}/#', self._async_update, qos)
 
     async def _async_update(self, topic: str, payload: str, qos: int):
-        topic = topic.replace(f'{self._prefix_topic}/', '')
+        topic = topic.replace(self._prefix_topic, '')
+
         # Load Device Properties
-        if topic == '$homie': self._convention_version = payload
-        if topic == '$homie': self._convention_version = payload
-        if topic == '$online': self._online = payload
-        if topic == '$name': self._name = payload
-        if topic == '$localip': self._ip = payload
-        if topic == '$mac': self._mac = payload
+        if topic == '/$homie': self._convention_version = payload
+        if topic == '/$online': self._online = payload
+        if topic == '/$name': self._name = payload
+        if topic == '/$localip': self._ip = payload
+        if topic == '/$mac': self._mac = payload
 
         # Load Device Stats Properties
-        if topic == '$stats/uptime': self._uptime = payload
-        if topic == '$stats/signal': self._signal = payload
-        if topic == '$stats/interval': self._stats_interval = payload
+        if topic == '/$stats/uptime': self._uptime = payload
+        if topic == '/$stats/signal': self._signal = payload
+        if topic == '/$stats/interval': self._stats_interval = payload
 
         # Load Firmware Properties
-        if topic == '$fw/name': self._fw_name = payload
-        if topic == '$fw/version': self._fw_version = payload
-        if topic == '$fw/checksum': self._fw_checksum = payload
+        if topic == '/$fw/name': self._fw_name = payload
+        if topic == '/$fw/version': self._fw_version = payload
+        if topic == '/$fw/checksum': self._fw_checksum = payload
 
         # Load Implementation Properties
-        if topic == '$implementation': self._implementation = payload
+        if topic == '/$implementation': self._implementation = payload
+        
+        # Ready
+        if topic == '/$online' and self.online:
+            await self._on_component_ready(self)
 
     @property
     def base_topic(self):
@@ -201,9 +214,9 @@ class HomieDevice(ChangeListener):
         return self._convention_version
 
     @property
-    def online(self):
+    def online(self) -> bool:
         """Return true if the device is online."""
-        return self._online
+        return string_to_bool(self._online)
 
     @property
     def ip(self):
@@ -244,6 +257,11 @@ class HomieDevice(ChangeListener):
     def firmware_checksum(self):
         """Return the Firmware Checksum of the device."""
         return self._fw_checksum
+    
+    @property
+    def is_setup(self):
+        """Return True if the Device has been setup as a component"""
+        return self._is_setup
 
     @property
     def nodes(self):
@@ -257,14 +275,15 @@ class HomieDevice(ChangeListener):
 
 class HomieNode(ChangeListener):
     # A definition of a Homie Node
-    def __init__(self, device: HomieDevice, base_topic: str, node_id: str):
-        super(HomieNode, self).__init__()
+    def __init__(self, device: HomieDevice, base_topic: str, node_id: str, on_component_ready):
+        super().__init__()
         _LOGGER.info(f"Homie Node Discovered. ID: {node_id}")
         self._device = device
         self._properties = dict()
         self._base_topic = base_topic
         self._node_id = node_id
         self._prefix_topic = f'{base_topic}/{node_id}'
+        self._on_component_ready = on_component_ready
         self._is_setup = False
 
         self._type = STATE_UNKNOWN
@@ -276,16 +295,21 @@ class HomieNode(ChangeListener):
                 property_settable = True if property_match.group('settable') is not None else False
                 property_range = (int(property_match.group('range_start')), int(property_match.group('range_end'))) if property_match.group('range_start') is not None else ()
                 property = HomieProperty(self, self._prefix_topic, property_id, property_settable, property_range)
-                await property._async_setup(hass, qos)
                 self._properties[property_id] = property
+                await property._async_setup(hass, qos)
 
-        await mqtt.async_subscribe(hass, f'{self._prefix_topic}', self._async_update, qos)
+        await mqtt.async_subscribe(hass, f'{self._prefix_topic}/#', self._async_update, qos)
 
 
     async def _async_update(self, topic: str, payload: str, qos: int):
-        topic = topic.replace(f'{self._prefix_topic}/', '')
-        # Load Node Properties
-        if topic == '$type': self._type = payload
+        topic = topic.replace(self._prefix_topic, '')
+
+        if topic == '/$type': self._type = payload
+        
+        # Ready 
+        if topic == '/$type' and not self._is_setup: 
+            self._is_setup = True
+            await self._on_component_ready(self)
 
     @property
     def base_topic(self):
@@ -304,11 +328,8 @@ class HomieNode(ChangeListener):
     
     @property
     def is_setup(self):
-        """Return True if the node has been setup as a component"""
+        """Return True if the Node has been setup as a component"""
         return self._is_setup
-    @is_setup.setter
-    def is_setup(self, value: bool):
-        self._is_setup = value
 
     @property
     def properties(self):
@@ -319,30 +340,40 @@ class HomieNode(ChangeListener):
         """Return a specific Property for the node."""
         return property_name in self._properties
 
-    def property(self, property_name: str):
+    def get_property(self, property_name: str):
         """Return a specific Property for the node."""
         return self._properties[property_name]
+    
+    @property
+    def device(self):
+        """Return the Parent Device of the node."""
+        return self._device
 
 
 class HomieProperty(ChangeListener):
     # A definition of a Homie Property
-    def __init__(self, node: HomieNode, base_topic: str, property_id: str, settable: bool, range_tup: tuple):
-        super(HomieProperty, self).__init__()
+    def __init__(self, node: HomieNode, base_topic: str, property_id: str, settable: bool, ranges: tuple):
+        super().__init__()
         _LOGGER.info(f"Homie Property Discovered. ID: {property_id}")
         self._node = node
         self._base_topic = base_topic
         self._property_id = property_id
         self._settable = settable
-        self._range = range_tup
+        self._range = ranges
         self._prefix_topic = f'{base_topic}/{property_id}'
 
-        self._value = STATE_UNKNOWN
+        self._state = STATE_UNKNOWN
     
     async def _async_setup(self, hass: HomeAssistantType, qos: int):
-        await mqtt.async_subscribe(hass, f'{self._prefix_topic}', self._async_update, qos)
+        async def async_publish(topic: str, payload: str, retain = True):
+            mqtt.async_publish(hass, topic, payload, qos, retain)
+        self._async_publish = async_publish
+        await mqtt.async_subscribe(hass, self._prefix_topic, self._async_update, qos)
 
     async def _async_update(self, topic: str, payload: str, qos: int):
-        if topic == self._prefix_topic: self._value = payload
+        topic = topic.replace(self._prefix_topic, '')
+        
+        if topic == '': self._state = payload
 
     @property
     def property_id(self):
@@ -350,14 +381,26 @@ class HomieProperty(ChangeListener):
         return self._property_id
     
     @property
-    def value(self):
-        """Return the value of the Property."""
-        return self._value
+    def state(self):
+        """Return the state of the Property."""
+        return self._state
+    
+    async def async_set_state(self, value: str):
+        """Set the state of the Property."""
+        if self.settable:
+            await self._async_publish(f"{self._prefix_topic}/set", value)
 
     @property
     def settable(self):
-        """Return the Settablity of the Property."""
+        """Return if the Property is settable."""
         return self._settable
+
+    @property
+    def node(self):
+        """Return the Parent Node of the Property."""
+        return self._node
+
+    ####
 
     @property
     def name(self):
@@ -378,3 +421,6 @@ class HomieProperty(ChangeListener):
     def format(self):
         """Return the Format for the Property."""
         return self._format
+    
+    
+
