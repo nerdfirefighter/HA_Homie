@@ -46,7 +46,7 @@ def async_start(hass, discovery_topic, hass_config):
     @asyncio.coroutine
     def async_device_message_received(topic, payload, qos):
         """Process the received message."""
-        #_LOGGER.warning("mqdiscover | [%s]:[%s]:[%s]", qos, topic, payload)
+        _LOGGER.info("mqdiscover | [%s]:[%s]:[%s]", qos, topic, payload)
         
         # List of all topics published on MQTT since HA was started
         messages[topic] = payload
@@ -61,9 +61,9 @@ def async_start(hass, discovery_topic, hass_config):
                 nodelist[b[0]] = b[1]
             device = match_nodes.group('device')
             nodes[device] = nodelist
-            #for key, val in nodes.items():
-                #for key2, val2 in val.items():
-                    #_LOGGER.warning("Device:[%s] - Node:[%s] - Type:[%s]", key, key2, val2)
+            for key, val in nodes.items():
+                for key2, val2 in val.items():
+                    _LOGGER.warning("Device:[%s] - Node:[%s] - Type:[%s]", key, key2, val2)
         
         # Check if topic is $online topic
         match_online = TOPIC_ONLINE.match(topic)
