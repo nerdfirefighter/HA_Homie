@@ -7,7 +7,7 @@ import datetime
 import voluptuous as vol
 import functools
 import homeassistant.components.mqtt as mqtt
-from homeassistant.components.mqtt import (CONF_DISCOVERY_PREFIX, CONF_QOS, valid_discovery_topic, _VALID_QOS_SCHEMA)
+from homeassistant.components.mqtt import (CONF_DISCOVERY_PREFIX, CONF_QOS, valid_subscribe_topic, _VALID_QOS_SCHEMA)
 from homeassistant.helpers.discovery import (async_load_platform)
 from homeassistant.helpers.event import (async_track_time_interval)
 from homeassistant.helpers import (config_validation as cv)
@@ -27,16 +27,16 @@ DOMAIN = 'homie'
 DEPENDENCIES = ['mqtt']
 INTERVAL_SECONDS = 1
 MESSAGE_MAX_KEEP_SECONDS = 5
-HOMIE_SUPPORTED_VERSION = '2.0.0'
+HOMIE_SUPPORTED_VERSION = '2.0.1'
 DEFAULT_DISCOVERY_PREFIX = 'homie'
-DEFAULT_QOS = 0
+DEFAULT_QOS = 1
 KEY_HOMIE_ALREADY_DISCOVERED = 'KEY_HOMIE_ALREADY_DISCOVERED'
 KEY_HOMIE_ENTITY_NAME = 'KEY_HOMIE_ENTITY_ID'
 
 # CONFIg
 CONFIG_SCHEMA = vol.Schema({
     DOMAIN: vol.Schema({
-        vol.Optional(CONF_DISCOVERY_PREFIX, default=DEFAULT_DISCOVERY_PREFIX): valid_discovery_topic,
+        vol.Optional(CONF_DISCOVERY_PREFIX, default=DEFAULT_DISCOVERY_PREFIX): valid_subscribe_topic,
         vol.Optional(CONF_QOS, default=DEFAULT_QOS): _VALID_QOS_SCHEMA,
     }),
 }, extra=vol.ALLOW_EXTRA)
