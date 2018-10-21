@@ -11,17 +11,12 @@ from homeassistant.helpers.typing import (HomeAssistantType, ConfigType)
 
 # CONSTANTS
 _LOGGER = logging.getLogger(__name__)
-VALUE_PROP = 'value'
 
 @asyncio.coroutine
 def async_setup_platform(hass: HomeAssistantType, config: ConfigType, async_add_entities, discovery_info=None):
     """Set up the Homie sensor."""
-    _LOGGER.info(f"Setting up Homie Sensor: {config} - {discovery_info}")
-
-
     entity_name = discovery_info[KEY_HOMIE_ENTITY_NAME]
     homie_sensor_node = hass.data[KEY_HOMIE_ALREADY_DISCOVERED][entity_name]
-    _LOGGER.debug(f"homie_sensor_node (properties): " + str(homie_sensor_node.properties))
     if homie_sensor_node is None: 
         raise ValueError("Homie Sensor failed to recive a Homie Node to bind too")
     if not homie_sensor_node.has_property(VALUE_PROP): 
@@ -36,7 +31,6 @@ class HomieSensor(Entity):
 
     def __init__(self, entity_name: str, homie_sensor_node: HomieNode):
         """Initialize Homie Sensor."""
-        _LOGGER.info(f"Init HomieSensor")
         self._name = entity_name
         self._node = homie_sensor_node
         self._node.device.add_listener(self._on_change)
