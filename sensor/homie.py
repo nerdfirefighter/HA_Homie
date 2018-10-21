@@ -15,12 +15,13 @@ _LOGGER = logging.getLogger(__name__)
 @asyncio.coroutine
 def async_setup_platform(hass: HomeAssistantType, config: ConfigType, async_add_entities, discovery_info=None):
     """Set up the Homie sensor."""
+    _LOGGER.info(f"Setting up Homie Sensor: {config} - {discovery_info}")
     entity_name = discovery_info[KEY_HOMIE_ENTITY_NAME]
     homie_sensor_node = hass.data[KEY_HOMIE_ALREADY_DISCOVERED][entity_name]
     if homie_sensor_node is None: 
-        raise ValueError("Homie Sensor failed to recive a Homie Node to bind too")
-    if not homie_sensor_node.has_property(VALUE_PROP): 
-        raise Exception(f"Homie Sensor Node doesn't have a {VALUE_PROP} property")
+        raise ValueError("Homie Sensor failed to receive a Homie Node to bind too")
+    if homie_sensor_node.state_property == STATE_UNKNOWN: 
+        raise Exception(f"Homie Sensor Node couldn't retrieve the state property")
     
     async_add_entities([HomieSensor(entity_name, homie_sensor_node)])
 
@@ -33,9 +34,7 @@ class HomieSensor(Entity):
         """Initialize Homie Sensor."""
         self._name = entity_name
         self._node = homie_sensor_node
-        self._node.device.add_listener(self._on_change)
-        self._node.add_listener(self._on_change)
-        self._node.get_property(VALUE_PROP).add_listener(self._on_change)
+        self._node.state_property.add_listener(self._on_change)
 
     def _on_change(self):
         self.async_schedule_update_ha_state()
@@ -48,12 +47,12 @@ class HomieSensor(Entity):
     @property
     def state(self):
         """Return the state of the Homie Sensor."""
-        return self._node.get_property(VALUE_PROP).state
+        return self._node.state_property.state
 
     @property
     def unit_of_measurement(self):
         """Return the unit of measurement."""
-        return 'unit'
+        return self._node.get_property('unit').state
 
     @property
     def should_poll(self):

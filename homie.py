@@ -281,6 +281,7 @@ class HomieNode(ChangeListener):
         self._prefix_topic = f'{base_topic}/{node_id}'
         self._on_component_ready = on_component_ready
         self._is_setup = False
+        self._state_property = STATE_UNKNOWN
 
         self._type = STATE_UNKNOWN
 
@@ -339,6 +340,24 @@ class HomieNode(ChangeListener):
     def get_property(self, property_name: str):
         """Return a specific Property for the node."""
         return self._properties[property_name]
+
+    @property
+    def state_property(self):
+        # Set the state property if it isn't already set. 
+        if self._state_property == STATE_UNKNOWN:
+            for property in self.properties:
+                property = self.properties[property]
+                if not "unit" in property.property_id and not "$" == property.property_id[0] and not "_" == property.property_id[0] and not "value" in property.property_id:
+                    if self._state_property != STATE_UNKNOWN:
+                        # TODO: Make this a more specific exception
+                        raise Exception('Could not detect which property should be used for state.')
+                    self._state_property = property
+
+        return self._state_property 
+
+    @state_property.setter
+    def set_state_proprety(self, value):
+        self._state_property = value
     
     @property
     def device(self):
@@ -367,8 +386,9 @@ class HomieProperty(ChangeListener):
 
     async def _async_update(self, topic: str, payload: str, qos: int):
         topic = topic.replace(self._prefix_topic, '')
-        
-        if topic == '': self._state = payload
+        if topic == '': 
+            self._state = payload
+
 
     @property
     def property_id(self):
@@ -414,4 +434,3 @@ class HomieProperty(ChangeListener):
     def format(self):
         """Return the Format for the Property."""
         return self._format
-    
