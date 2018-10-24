@@ -7,7 +7,7 @@ import datetime
 import voluptuous as vol
 import functools
 import homeassistant.components.mqtt as mqtt
-from homeassistant.components.mqtt import (CONF_DISCOVERY_PREFIX, CONF_QOS, valid_discovery_topic, _VALID_QOS_SCHEMA)
+from homeassistant.components.mqtt import (CONF_DISCOVERY_PREFIX, CONF_QOS, valid_subscribe_topic, _VALID_QOS_SCHEMA)
 from homeassistant.helpers.discovery import (async_load_platform)
 from homeassistant.helpers.event import (async_track_time_interval)
 from homeassistant.helpers import (config_validation as cv)
@@ -27,16 +27,16 @@ DOMAIN = 'homie'
 DEPENDENCIES = ['mqtt']
 INTERVAL_SECONDS = 1
 MESSAGE_MAX_KEEP_SECONDS = 5
-HOMIE_SUPPORTED_VERSION = '2.0.0'
+HOMIE_SUPPORTED_VERSION = '2.0.1'
 DEFAULT_DISCOVERY_PREFIX = 'homie'
-DEFAULT_QOS = 0
+DEFAULT_QOS = 1
 KEY_HOMIE_ALREADY_DISCOVERED = 'KEY_HOMIE_ALREADY_DISCOVERED'
 KEY_HOMIE_ENTITY_NAME = 'KEY_HOMIE_ENTITY_ID'
 
 # CONFIg
 CONFIG_SCHEMA = vol.Schema({
     DOMAIN: vol.Schema({
-        vol.Optional(CONF_DISCOVERY_PREFIX, default=DEFAULT_DISCOVERY_PREFIX): valid_discovery_topic,
+        vol.Optional(CONF_DISCOVERY_PREFIX, default=DEFAULT_DISCOVERY_PREFIX): valid_subscribe_topic,
         vol.Optional(CONF_QOS, default=DEFAULT_QOS): _VALID_QOS_SCHEMA,
     }),
 }, extra=vol.ALLOW_EXTRA)
@@ -74,11 +74,11 @@ async def async_setup(hass: HomeAssistantType, config: ConfigType):
 
     # Sart
     async def async_start():
-        _LOGGER.info(f"Component - {DOMAIN} - Start. Discovery Topic: {discovery_prefix}/")
         await mqtt.async_subscribe(hass, f'{discovery_prefix}/+/$homie', async_discover_message_received, qos)
 
     async def async_discover_message_received(topic: str, payload: str, msg_qos: int):
         device_match = DISCOVER_DEVICE.match(topic)
+
         if device_match and payload == HOMIE_SUPPORTED_VERSION:
             device_base_topic = device_match.group('prefix_topic')
             device_id = device_match.group('device_id')
@@ -104,7 +104,6 @@ async def async_setup(hass: HomeAssistantType, config: ConfigType):
         elif node.type == 'switch':
             await setup_device_node_as_platform(get_entity_name(), node, 'switch')
 
-
     async def setup_device_node_as_platform(entity_name: str, node: HomieNode, platform: str):
         hass.data[KEY_HOMIE_ALREADY_DISCOVERED][entity_name] = node
         discovery_info = {KEY_HOMIE_ENTITY_NAME: entity_name}
@@ -112,7 +111,6 @@ async def async_setup(hass: HomeAssistantType, config: ConfigType):
 
     await async_start()
     return True
-
 
 # Types
 class ChangeListener(object):
@@ -131,7 +129,6 @@ class HomieDevice(ChangeListener):
     # A definition of a Homie Device
     def __init__(self, base_topic: str, device_id: str, on_component_ready):
         super().__init__()
-        _LOGGER.info(f"Homie Device Discovered. ID: {device_id}")
         self._nodes = dict()
         self._base_topic = base_topic
         self._device_id = device_id
@@ -277,7 +274,6 @@ class HomieNode(ChangeListener):
     # A definition of a Homie Node
     def __init__(self, device: HomieDevice, base_topic: str, node_id: str, on_component_ready):
         super().__init__()
-        _LOGGER.info(f"Homie Node Discovered. ID: {node_id}")
         self._device = device
         self._properties = dict()
         self._base_topic = base_topic
@@ -285,6 +281,7 @@ class HomieNode(ChangeListener):
         self._prefix_topic = f'{base_topic}/{node_id}'
         self._on_component_ready = on_component_ready
         self._is_setup = False
+        self._state_property = STATE_UNKNOWN
 
         self._type = STATE_UNKNOWN
 
@@ -343,6 +340,24 @@ class HomieNode(ChangeListener):
     def get_property(self, property_name: str):
         """Return a specific Property for the node."""
         return self._properties[property_name]
+
+    @property
+    def state_property(self):
+        # Set the state property if it isn't already set. 
+        if self._state_property == STATE_UNKNOWN:
+            for property in self.properties:
+                property = self.properties[property]
+                if not "unit" in property.property_id and not "$" == property.property_id[0] and not "_" == property.property_id[0] and not "value" in property.property_id:
+                    if self._state_property != STATE_UNKNOWN:
+                        # TODO: Make this a more specific exception
+                        raise Exception('Could not detect which property should be used for state.')
+                    self._state_property = property
+
+        return self._state_property 
+
+    @state_property.setter
+    def set_state_proprety(self, value):
+        self._state_property = value
     
     @property
     def device(self):
@@ -354,7 +369,6 @@ class HomieProperty(ChangeListener):
     # A definition of a Homie Property
     def __init__(self, node: HomieNode, base_topic: str, property_id: str, settable: bool, ranges: tuple):
         super().__init__()
-        _LOGGER.info(f"Homie Property Discovered. ID: {property_id}")
         self._node = node
         self._base_topic = base_topic
         self._property_id = property_id
@@ -372,8 +386,9 @@ class HomieProperty(ChangeListener):
 
     async def _async_update(self, topic: str, payload: str, qos: int):
         topic = topic.replace(self._prefix_topic, '')
-        
-        if topic == '': self._state = payload
+        if topic == '': 
+            self._state = payload
+
 
     @property
     def property_id(self):
@@ -400,8 +415,6 @@ class HomieProperty(ChangeListener):
         """Return the Parent Node of the Property."""
         return self._node
 
-    ####
-
     @property
     def name(self):
         """Return the Name of the Property."""
@@ -421,6 +434,3 @@ class HomieProperty(ChangeListener):
     def format(self):
         """Return the Format for the Property."""
         return self._format
-    
-    
-
